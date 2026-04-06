@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO account_states (address, account_name, slot, lamports, data, updated_at)\n        VALUES ($1, $2, $3, $4, $5, now())\n        ON CONFLICT (address, slot) DO UPDATE\n          SET data = EXCLUDED.data, lamports = EXCLUDED.lamports, updated_at = now()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a11ae9856c0bf8204495c1795a012f0c7a4cf8dc594c1a434891a1ba26728025"
+}
