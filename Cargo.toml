@@ -1,0 +1,44 @@
+[package]
+name = "solana-indexer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "solana-indexer"
+path = "src/main.rs"
+
+[lib]
+name = "solana_indexer"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["json"] }
+http = "1"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
+solana-client = "3.1"
+solana-sdk = "4.0"
+solana-transaction-status = "3.1"
+solana-commitment-config = "3.1"
+flate2 = "1"
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+bs58 = "0.5"
+tokio-retry = "0.3"
+hex = "0.4"
+bincode = "1"
+sha2 = "0.11"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[profile.release]
+opt-level = 3
+lto = true
