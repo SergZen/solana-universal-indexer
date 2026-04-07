@@ -276,8 +276,14 @@ fn type_to_string(val: &Value) -> String {
             } else if let Some(name) = obj.get("defined")
                 .and_then(|d| d.get("name"))
                 .and_then(Value::as_str)
+                .filter(|&n| n == "OptionBool")
             {
                 name.to_string()
+            } else if let Some(hex) = obj.get("raw_hex").and_then(Value::as_str) {
+                match hex.len() {
+                    2 => "bool".to_string(),
+                    _ => "complex".to_string(),
+                }
             } else {
                 "complex".to_string()
             }

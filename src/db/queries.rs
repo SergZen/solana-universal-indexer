@@ -64,8 +64,15 @@ fn bind_value<'q>(
     v: &'q Value,
 ) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
     match v {
-        Value::Null => q.bind(Option::<i64>::None),
         Value::Bool(b) => q.bind(b),
+        Value::Object(map) if map.contains_key("raw_hex") => {
+            let hex_str = map.get("raw_hex").and_then(|h| h.as_str());
+            
+            match hex_str {
+                Some(s) if s.len() == 2 => q.bind(s == "01"),
+                Some(_) | None => q.bind(v),
+            }
+        }
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 q.bind(i)
@@ -201,6 +208,9 @@ pub async fn upsert_ix_typed(
     ];
 
     for (key, val) in obj {
+        if val.is_null() {
+            continue;
+        }
         extra_cols.push(format!("\"{}\"", sanitize_col_runtime(key)));
         extra_phs.push(format!("${idx}"));
         values.push(val.clone());
