@@ -6,8 +6,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app 
 
-ENV SQLX_OFFLINE=true
-
 COPY Cargo.toml Cargo.lock ./
 
 RUN mkdir -p src && \

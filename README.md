@@ -108,17 +108,8 @@ PROGRAM_ID=6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P
 INDEXER_MODE=realtime
 ```
 
-### 2. Generate sqlx offline cache (first time only)
 
-```bash
-docker compose up -d postgres
-cargo install sqlx-cli --no-default-features --features postgres
-DATABASE_URL=postgres://indexer:indexer@localhost:5432/indexer cargo sqlx migrate run
-DATABASE_URL=postgres://indexer:indexer@localhost:5432/indexer cargo sqlx prepare
-docker compose down
-```
-
-### 3. Run
+### 2. Run
 
 ```bash
 docker compose up --build
