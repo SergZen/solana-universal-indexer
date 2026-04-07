@@ -13,7 +13,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use crate::{
     api::{router::build_router, state::AppState},
     config::{Config, IndexerMode},
-    db::{connect, queries::{get_checkpoint, LAST_SLOT_KEY}},
+    db::{connect, queries::{get_checkpoint, save_slot_checkpoint_direct, LAST_SLOT_KEY}},
     idl::{loader::load_idl, schema::IdlSchema},
     indexer::{
         processor::Processor,
@@ -145,6 +145,10 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+async fn save_slot_checkpoint(pool: &sqlx::PgPool, slot: u64) -> Result<()> {
+    save_slot_checkpoint_direct(pool, slot).await
+}
+
 async fn run_batch(
     processor: Arc<Processor>,
     rpc: Arc<RpcClientWithRetry>,
@@ -161,50 +165,64 @@ async fn run_batch(
 
     // Slot range via getBlock
     if let (Some(start), Some(end)) = (cfg.start_slot, cfg.end_slot) {
-        // If we have a saved slot checkpoint, resume from there to avoid re-reading
-        let resume_from = get_checkpoint(pool, LAST_SLOT_KEY)
+        let saved_slot = get_checkpoint(pool, LAST_SLOT_KEY)
             .await
             .unwrap_or(None)
-            .and_then(|s| s.parse::<u64>().ok())
+            .and_then(|s| s.parse::<u64>().ok());
+
+        // If last saved slot == end_slot — range fully scanned, nothing to do
+        if let Some(last) = saved_slot {
+            if last >= end {
+                info!(
+                    last_indexed_slot = last,
+                    end_slot = end,
+                    "Range fully indexed, skipping"
+                );
+                return Ok(());
+            }
+        }
+
+        // Resume from saved slot + 1, or from start
+        let resume_from = saved_slot
+            .filter(|&last| last >= start && last < end)
             .map(|last| {
-                if last >= start && last < end {
-                    info!(last_slot = last, "Resuming batch from last checkpoint slot");
-                    last + 1
-                } else {
-                    start
-                }
+                info!(last_slot = last, resume = last + 1, "Resuming batch from checkpoint");
+                last + 1
             })
             .unwrap_or(start);
 
-        if resume_from > end {
-            info!(resume_from, end, "Already indexed up to end slot, nothing to do");
-            return Ok(());
-        }
+        info!(
+            start = resume_from, end,
+            program_id = %cfg.program_id,
+            "Batch mode: slot range via getBlock"
+        );
 
-        info!(start = resume_from, end, program_id = %cfg.program_id, "Batch mode: slot range via getBlock");
         let sigs = rpc
             .get_signatures_for_slot_range(&cfg.program_id, resume_from, end, cfg.batch_size)
             .await?;
 
         info!(count = sigs.len(), start = resume_from, end, "Signatures found in slot range");
+
         if sigs.is_empty() {
             tracing::warn!(
                 start = resume_from, end, program_id = %cfg.program_id,
-                "No signatures found. Check: (1) correct PROGRAM_ID,                  (2) slot range has transactions on this network,                  (3) RPC node has the block history available"
+                "No signatures found in range"
             );
-            return Ok(());
+        } else {
+            if let Some(first) = sigs.first() {
+                info!(slot = first.slot, sig = %first.signature, "First signature in range");
+            }
+            if let Some(last) = sigs.last() {
+                info!(slot = last.slot, sig = %last.signature, "Last signature in range");
+            }
+            let sig_strings: Vec<String> = sigs.iter().map(|s| s.signature.clone()).collect();
+            processor.process_signatures(&sig_strings).await?;
         }
 
-        if let Some(first) = sigs.first() {
-            info!(slot = first.slot, sig = %first.signature, "First signature in range");
-        }
-        if let Some(last) = sigs.last() {
-            info!(slot = last.slot, sig = %last.signature, "Last signature in range");
-        }
-
-        let sig_strings: Vec<String> = sigs.iter().map(|s| s.signature.clone()).collect();
-        processor.process_signatures(&sig_strings).await?;
-        info!("Batch complete");
+        // Always save end_slot as checkpoint — marks this range as fully scanned
+        // even if no matching transactions were found
+        save_slot_checkpoint(pool, end).await?;
+        info!(end_slot = end, "Batch complete — end slot saved to checkpoint");
         return Ok(());
     }
 

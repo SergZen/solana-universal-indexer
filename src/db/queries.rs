@@ -103,6 +103,21 @@ pub async fn get_checkpoint(pool: &PgPool, key: &str) -> Result<Option<String>> 
 pub const LAST_SIG_KEY:  &str = "last_indexed_sig";
 pub const LAST_SLOT_KEY: &str = "last_indexed_slot";
 
+/// Save slot checkpoint outside of a transaction — used after batch scan completes.
+pub async fn save_slot_checkpoint_direct(pool: &PgPool, slot: u64) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO indexer_state (key, value, updated_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (key) DO UPDATE
+             SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at"#,
+    )
+    .bind(LAST_SLOT_KEY)
+    .bind(slot.to_string())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn upsert_checkpoint(
     tx: &mut Transaction<'_, Postgres>,
     key: &str,

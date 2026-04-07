@@ -230,11 +230,11 @@ fn idl_type_to_pg(ty: &str) -> String {
         return "JSONB".to_string();
     }
     match ty {
-        "bool"                  => "BOOLEAN",
+        "bool" | "OptionBool"   => "BOOLEAN",
         "u8" | "u16" | "u32"
-        | "i8" | "i16" | "i32" => "INTEGER",
+        | "i8" | "i16" | "i32"  => "INTEGER",
         "u64" | "i64"           => "BIGINT",
-        "u128" | "i128"         => "TEXT",  // too big for BIGINT
+        "u128" | "i128"         => "NUMERIC",
         "f32"                   => "REAL",
         "f64"                   => "DOUBLE PRECISION",
         "string"                => "TEXT",
@@ -273,7 +273,10 @@ fn type_to_string(val: &Value) -> String {
                 } else {
                     "array".to_string()
                 }
-            } else if let Some(name) = obj.get("defined").and_then(Value::as_str) {
+            } else if let Some(name) = obj.get("defined")
+                .and_then(|d| d.get("name"))
+                .and_then(Value::as_str)
+            {
                 name.to_string()
             } else {
                 "complex".to_string()
