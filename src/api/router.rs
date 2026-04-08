@@ -11,6 +11,7 @@ pub fn build_router(state: AppState) -> Router {
         .allow_headers(Any);
 
     Router::new()
+        .route("/", get(|| async { "Indexer is running!" }))
         // Health & schema
         .route("/health",  get(health))
         .route("/schema",  get(get_schema))

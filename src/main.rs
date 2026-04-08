@@ -137,9 +137,17 @@ async fn main() -> Result<()> {
         }
     };
 
-    let _ = indexer_handle.await;
-    let _ = shutdown_tx.send(true);
-    let _ = api_handle.await;
+    if cfg.mode == IndexerMode::Batch {
+        let _ = indexer_handle.await;
+        info!("Batch indexing finished. API remains active. Press Ctrl+C to stop.");
+
+        let _ = api_handle.await;
+    } else {
+        tokio::select! {
+            _ = indexer_handle => info!("Indexer stopped"),
+            _ = api_handle => info!("API server stopped"),
+        }
+    }
 
     info!("Solana indexer shut down cleanly");
     Ok(())
