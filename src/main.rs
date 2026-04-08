@@ -199,38 +199,70 @@ async fn run_batch(
             })
             .unwrap_or(start);
 
+        let batch_size = cfg.batch_size as u64;
+        let total_slots = end.saturating_sub(resume_from) + 1;
+        let total_chunks = (total_slots + batch_size - 1) / batch_size;
+
         info!(
             start = resume_from, end,
             program_id = %cfg.program_id,
+            batch_size,
+            total_chunks,
             "Batch mode: slot range via getBlock"
         );
 
-        let sigs = rpc
-            .get_signatures_for_slot_range(&cfg.program_id, resume_from, end, cfg.batch_size)
-            .await?;
+        // Split range into chunks of batch_size slots.
+        // Process and checkpoint each chunk independently — on restart
+        // we resume from the last completed chunk, not the beginning.
+        let mut chunk_start = resume_from;
+        let mut chunk_num = 0u64;
 
-        info!(count = sigs.len(), start = resume_from, end, "Signatures found in slot range");
+        while chunk_start <= end {
+            let chunk_end = (chunk_start + batch_size - 1).min(end);
+            chunk_num += 1;
 
-        if sigs.is_empty() {
-            tracing::warn!(
-                start = resume_from, end, program_id = %cfg.program_id,
-                "No signatures found in range"
+            info!(
+                chunk = chunk_num,
+                total_chunks,
+                slot_start = chunk_start,
+                slot_end = chunk_end,
+                "Scanning slot chunk"
             );
-        } else {
-            if let Some(first) = sigs.first() {
-                info!(slot = first.slot, sig = %first.signature, "First signature in range");
+
+            let sigs = rpc
+                .get_signatures_for_slot_range(
+                    &cfg.program_id, chunk_start, chunk_end, cfg.batch_size,
+                )
+                .await?;
+
+            info!(
+                chunk = chunk_num,
+                found = sigs.len(),
+                slot_start = chunk_start,
+                slot_end = chunk_end,
+                "Chunk scan complete"
+            );
+
+            if !sigs.is_empty() {
+                let sig_strings: Vec<String> =
+                    sigs.iter().map(|s| s.signature.clone()).collect();
+                processor.process_signatures(&sig_strings).await?;
             }
-            if let Some(last) = sigs.last() {
-                info!(slot = last.slot, sig = %last.signature, "Last signature in range");
+
+            // Save checkpoint after every chunk — even if no signatures found.
+            // On restart we resume from chunk_end + 1.
+            save_slot_checkpoint(pool, chunk_end).await?;
+            info!(slot_checkpoint = chunk_end, chunk = chunk_num, "Chunk checkpoint saved");
+
+            if processor.is_shutting_down() {
+                info!("Shutdown requested, stopping slot scan");
+                return Ok(());
             }
-            let sig_strings: Vec<String> = sigs.iter().map(|s| s.signature.clone()).collect();
-            processor.process_signatures(&sig_strings).await?;
+
+            chunk_start = chunk_end + 1;
         }
 
-        // Always save end_slot as checkpoint — marks this range as fully scanned
-        // even if no matching transactions were found
-        save_slot_checkpoint(pool, end).await?;
-        info!(end_slot = end, "Batch complete — end slot saved to checkpoint");
+        info!(end_slot = end, total_chunks = chunk_num, "Batch complete");
         return Ok(());
     }
 
