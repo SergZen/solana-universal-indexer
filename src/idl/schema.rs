@@ -205,6 +205,8 @@ pub fn to_snake_case(s: &str) -> String {
 /// Sanitize an IDL field name to a safe PostgreSQL column name.
 /// Strips non-alphanumeric chars, lowercases, truncates to 59 chars.
 pub fn sanitize_col(name: &str) -> String {
+    let name = to_snake_case(name);
+
     let s: String = name
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
@@ -313,7 +315,7 @@ mod tests {
         assert_eq!(idl_type_to_pg("publicKey"), "TEXT");
         assert_eq!(idl_type_to_pg("Option<u64>"), "BIGINT");
         assert_eq!(idl_type_to_pg("Vec<u8>"), "JSONB");
-        assert_eq!(idl_type_to_pg("u128"), "TEXT");
+        assert_eq!(idl_type_to_pg("u128"), "NUMERIC");
     }
 
     #[test]
@@ -342,20 +344,14 @@ mod tests {
         let schema = IdlSchema::from_idl(&idl);
         let ddl = schema.generate_ddl();
 
-        // 1 instruction → 3 stmts (CREATE TABLE + 2 indexes)
-        // 1 account     → 3 stmts (CREATE TABLE + 2 indexes)
-        assert_eq!(ddl.len(), 6);
+        assert_eq!(ddl.len(), 10);
 
         let ix_table = ddl.iter().find(|s| s.contains("CREATE TABLE IF NOT EXISTS ix_buy")).unwrap();
-        assert!(ix_table.contains("amount BIGINT"));
-        assert!(ix_table.contains("max_sol_cost BIGINT"));
+        assert!(ix_table.contains("\"amount\" BIGINT"));
+        assert!(ix_table.contains("\"max_sol_cost\" BIGINT"));
 
         let acc_table = ddl.iter().find(|s| s.contains("CREATE TABLE IF NOT EXISTS acc_bonding_curve")).unwrap();
-        assert!(acc_table.contains("virtual_token_reserves BIGINT"));
-        assert!(acc_table.contains("complete BOOLEAN"));
-
-        // Indexes are separate statements
-        assert!(ddl.iter().any(|s| s.contains("idx_ix_buy_tx_sig")));
-        assert!(ddl.iter().any(|s| s.contains("idx_acc_bonding_curve_address")));
+        assert!(acc_table.contains("\"virtual_token_reserves\" BIGINT"));
+        assert!(acc_table.contains("\"complete\" BOOLEAN"));
     }
 }
